@@ -5,16 +5,12 @@ use crate::utils::runner::RoundRobin;
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use parity_scale_codec::Encode;
-use subxt_rpcs::{
-    client::{rpc_params, RpcClient},
-    methods::legacy::{
-        LegacyRpcMethods,
-        Bytes, 
-        NumberOrHex,    
-    }
-};
 use subxt::ext::codec::Decode;
 use subxt::{Config, PolkadotConfig};
+use subxt_rpcs::{
+    client::{rpc_params, RpcClient},
+    methods::legacy::{Bytes, LegacyRpcMethods, NumberOrHex},
+};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
