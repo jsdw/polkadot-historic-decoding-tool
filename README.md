@@ -1,6 +1,6 @@
-# polkadot-decoding-example
+# polkadot-historic-decoding-tool
 
-This example code has a few options.
+This code has a few options.
 
 The necessary type information to decode historic blocks and storage entries is found at https://github.com/paritytech/frame-decode/blob/main/types/polkadot_types.yaml, and below is simply called `polkadot_types.yaml`.
 
