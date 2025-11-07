@@ -563,9 +563,9 @@ pub fn check_is_iterable(
 /// but the output block number can be pseudorandom in nature. The output number should be
 /// between the first and last spec versions provided (so blocks newer than the last runtime
 /// upgrade aren't tested).
-fn pick_pseudorandom_block(spec_versions: Option<&[SpecVersionUpdate]>, number: usize) -> u32 {
+fn pick_pseudorandom_block(spec_versions: Option<&[SpecVersionUpdate]>, number: usize) -> u64 {
     let Some(spec_versions) = spec_versions else {
-        return number as u32;
+        return number as u64;
     };
 
     // Given spec versions, we deterministically work from first blocks seen (ie blocks before
@@ -575,7 +575,7 @@ fn pick_pseudorandom_block(spec_versions: Option<&[SpecVersionUpdate]>, number: 
     let spec_version_idx = number % spec_versions.len();
     let spec_version_block_idx = (number / spec_versions.len()) * 1001; // move 1001 blocks forward each time to sample more range
 
-    let block_number = spec_versions[spec_version_idx].block + spec_version_block_idx as u32;
+    let block_number = spec_versions[spec_version_idx].block + spec_version_block_idx as u64;
     block_number
 }
 

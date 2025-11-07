@@ -18,15 +18,19 @@ pub struct Opts {
     /// URL of the node to connect to.
     /// Defaults to using Polkadot RPC URLs if not given.
     #[arg(short, long)]
-    url: Option<String>,
+    pub url: Option<String>,
 
     /// Block number to fetch metadata from.
     #[arg(short, long)]
-    block: u64,
+    pub block: u64,
 
     /// As binary?
     #[arg(long)]
-    binary: bool,
+    pub binary: bool,
+
+    /// Save to a file instead of stdout
+    #[arg(short, long)]
+    pub output: Option<std::path::PathBuf>,
 }
 
 pub async fn run(opts: Opts) -> anyhow::Result<()> {
@@ -49,11 +53,16 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
         .await
         .with_context(|| "Could not fetch metadata")?;
 
+    let mut writer: Box<dyn std::io::Write> = match opts.output {
+        None => Box::new(std::io::stdout()),
+        Some(file_path) => Box::new(std::fs::File::create(file_path)?),
+    };
+
     if as_binary {
         let encoded = metadata.encode();
-        std::io::stdout().write_all(&encoded)?;
+        writer.write_all(&encoded)?;
     } else {
-        serde_json::to_writer_pretty(std::io::stdout(), &metadata)?;
+        serde_json::to_writer_pretty(writer, &metadata)?;
     }
     Ok(())
 }

@@ -14,18 +14,25 @@ pub struct Opts {
     /// URL of the node to connect to.
     /// Defaults to using Polkadot RPC URLs if not given.
     #[arg(short, long)]
-    url: Option<String>,
+    pub url: Option<String>,
 
     /// Block number to start from.
     #[arg(short, long)]
-    starting_block: Option<u32>,
+    pub starting_block: Option<u64>,
 
     /// Block number to end on.
     #[arg(short, long)]
-    ending_block: Option<u32>,
+    pub ending_block: Option<u64>,
 }
 
 pub async fn run(opts: Opts) -> anyhow::Result<()> {
+    let spec_version_changes = get_spec_version_changes(opts).await?;
+    let stdout = std::io::stdout().lock();
+    serde_json::to_writer_pretty(stdout, &spec_version_changes)?;
+    Ok(())
+}
+
+pub async fn get_spec_version_changes(opts: Opts) -> anyhow::Result<Vec<SpecVersionUpdate>> {
     let url = utils::url_or_polkadot_rpc_nodes(opts.url.as_deref()).remove(0);
     let rpc_client = RpcClient::from_insecure_url(&url).await?;
 
@@ -37,7 +44,7 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                 .chain_get_header(None)
                 .await?
                 .expect("latest block will be returned when no hash given")
-                .number
+                .number as u64
         }
     };
 
@@ -74,12 +81,7 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
         }
     }
 
-    print_spec_version_updates(&changes)?;
-    Ok(())
-}
-
-fn print_spec_version_updates(updates: &[(u32, u32)]) -> Result<(), serde_json::Error> {
-    let updates: Vec<_> = updates
+    let updates: Vec<_> = changes
         .iter()
         .map(|&(block, spec_version)| SpecVersionUpdate {
             block,
@@ -87,15 +89,14 @@ fn print_spec_version_updates(updates: &[(u32, u32)]) -> Result<(), serde_json::
         })
         .collect();
 
-    let stdout = std::io::stdout().lock();
-    serde_json::to_writer_pretty(stdout, &updates)
+    Ok(updates)
 }
 
-async fn get_spec_version(rpc_client: &RpcClient, url: &str, block_number: u32) -> u32 {
+async fn get_spec_version(rpc_client: &RpcClient, url: &str, block_number: u64) -> u32 {
     retry(rpc_client.clone(), url, |rpcs: RpcClient| async move {
         let rpcs = LegacyRpcMethods::<PolkadotConfig>::new(rpcs);
         let block_hash = rpcs
-            .chain_get_block_hash(Some(NumberOrHex::Number(block_number as u64)))
+            .chain_get_block_hash(Some(NumberOrHex::Number(block_number)))
             .await
             .with_context(|| format!("Could not fetch block hash for block {block_number}"))?
             .ok_or_else(|| anyhow!("Couldn't find block {block_number}"))?;
@@ -142,6 +143,6 @@ where
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SpecVersionUpdate {
-    pub block: u32,
+    pub block: u64,
     pub spec_version: u32,
 }

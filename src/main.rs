@@ -12,6 +12,9 @@ enum Commands {
     DecodeStorageItems(commands::decode_storage_items::Opts),
     /// Fetch the metadata at a given block as JSON.
     FetchMetadata(commands::fetch_metadata::Opts),
+    /// Fetch all of the metadatas for some chain given a spec version update list.
+    /// This will obtain the spec versions internally if none are given.
+    FetchMetadatas(commands::fetch_metadatas::Opts),
     /// Find the block numbers where spec version changes happen.
     /// This is where the metadata/node API may have changed.
     FindSpecChanges(commands::find_spec_changes::Opts),
@@ -30,6 +33,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::FetchMetadata(opts) => {
             commands::fetch_metadata::run(opts).await?;
+        }
+        Commands::FetchMetadatas(opts) => {
+            commands::fetch_metadatas::run(opts).await?;
         }
         Commands::FindSpecChanges(opts) => {
             commands::find_spec_changes::run(opts).await?;
