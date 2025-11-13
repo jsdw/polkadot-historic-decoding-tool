@@ -1,10 +1,10 @@
 use crate::commands::find_spec_changes;
 use anyhow::Context;
 use clap::Parser;
-
-use super::fetch_metadata;
+use parity_scale_codec::Encode;
 use super::find_spec_changes::{get_spec_version_changes, SpecVersionUpdate};
 use std::path::PathBuf;
+use std::io::Write;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -17,6 +17,10 @@ pub struct Opts {
     /// Spec version updates.
     #[arg(short, long)]
     spec_versions: Option<PathBuf>,
+
+    /// Only save metadatas with unique versions (so we end up with 1 metadata V9, 1 metadata V10, 1 metadata V11 and so on).
+    #[arg(long)]
+    only_unique_versions: bool,
 
     /// As binary?
     #[arg(long)]
@@ -47,37 +51,54 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
         }
     };
 
+    let mut last_seen_version = 0;
     let is_binary = opts.binary;
     let path_is_dir = opts.output.is_dir();
     for spec_version in spec_versions {
         let spec = spec_version.spec_version;
 
+        eprintln!("Fetching metadata for spec version {spec}");
+        let metadata = super::fetch_metadata::fetch_metadata(
+            opts.url.clone(), 
+            spec_version.block
+        ).await?;
+
+        // eg v14,v15,v16
+        let version = metadata.version();
+
+        // Skip this metadata if the version has been seen before.
+        if version == last_seen_version && opts.only_unique_versions {
+            continue
+        }
+
+        last_seen_version = version;
+
         let save_path = {
             let mut path = opts.output.clone();
             let ext = if is_binary { "scale" } else { "json" };
+
             if path_is_dir {
-                path.push(format!("metadata_{spec}.{ext}"));
+                path.push(format!("metadata_v{version}_{spec}.{ext}"));
                 path
             } else {
                 let file_name = path
                     .file_name()
                     .and_then(|f| f.to_str())
                     .unwrap_or("metadata");
-                let new_file_name = format!("{file_name}_{spec}.{ext}");
+                let new_file_name = format!("{file_name}_v{version}_{spec}.{ext}");
                 path.set_file_name(new_file_name);
                 path
             }
         };
 
-        eprintln!("Fetching metadata for spec version {spec}");
-        let fetch_metadata_opts = fetch_metadata::Opts {
-            url: opts.url.clone(),
-            block: spec_version.block,
-            binary: opts.binary,
-            output: Some(save_path),
-        };
+        let mut file = std::fs::File::create(save_path)?;
 
-        fetch_metadata::run(fetch_metadata_opts).await?;
+        if opts.binary {
+            let encoded = metadata.encode();
+            file.write_all(&encoded)?;
+        } else {
+            serde_json::to_writer_pretty(file, &metadata)?;
+        }
     }
 
     Ok(())

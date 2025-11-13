@@ -11,9 +11,15 @@ enum Commands {
     /// Decode storage items, printing the decoded output.
     DecodeStorageItems(commands::decode_storage_items::Opts),
     /// Fetch the metadata at a given block as JSON.
+    ///
+    /// Note: uses state_getMetadata for historic support and will not hand back anything
+    /// greater than V14 metadata as a result.
     FetchMetadata(commands::fetch_metadata::Opts),
     /// Fetch all of the metadatas for some chain given a spec version update list.
     /// This will obtain the spec versions internally if none are given.
+    /// 
+    /// Note: uses state_getMetadata for historic support and will not hand back anything
+    /// greater than V14 metadata as a result.
     FetchMetadatas(commands::fetch_metadatas::Opts),
     /// Find the block numbers where spec version changes happen.
     /// This is where the metadata/node API may have changed.

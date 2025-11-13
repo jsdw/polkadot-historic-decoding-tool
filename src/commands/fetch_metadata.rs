@@ -34,24 +34,10 @@ pub struct Opts {
 }
 
 pub async fn run(opts: Opts) -> anyhow::Result<()> {
-    let start_block_num = opts.block;
+    let block_number = opts.block;
     let as_binary = opts.binary;
 
-    // Use our the given URl, or polkadot RPC node urls if not given.
-    let urls = RoundRobin::new(utils::url_or_polkadot_rpc_nodes(opts.url.as_deref()));
-
-    let block_number = start_block_num;
-    let url = urls.get();
-    let rpc_client = RpcClient::from_insecure_url(url).await?;
-    let rpcs = LegacyRpcMethods::<PolkadotConfig>::new(rpc_client.clone());
-    let block_hash = rpcs
-        .chain_get_block_hash(Some(NumberOrHex::Number(block_number as u64)))
-        .await
-        .with_context(|| "Could not fetch block hash")?
-        .ok_or_else(|| anyhow!("Couldn't find block {block_number}"))?;
-    let metadata = state_get_metadata(&rpc_client, Some(block_hash))
-        .await
-        .with_context(|| "Could not fetch metadata")?;
+    let metadata = fetch_metadata(opts.url, block_number).await?;
 
     let mut writer: Box<dyn std::io::Write> = match opts.output {
         None => Box::new(std::io::stdout()),
@@ -65,6 +51,25 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
         serde_json::to_writer_pretty(writer, &metadata)?;
     }
     Ok(())
+}
+
+pub(super) async fn fetch_metadata(url: Option<String>, block_number: u64) -> anyhow::Result<frame_metadata::RuntimeMetadata> {
+    // Use our the given URl, or polkadot RPC node urls if not given.
+    let urls = RoundRobin::new(utils::url_or_polkadot_rpc_nodes(url.as_deref()));
+
+    let url = urls.get();
+    let rpc_client = RpcClient::from_insecure_url(url).await?;
+    let rpcs = LegacyRpcMethods::<PolkadotConfig>::new(rpc_client.clone());
+    let block_hash = rpcs
+        .chain_get_block_hash(Some(NumberOrHex::Number(block_number as u64)))
+        .await
+        .with_context(|| "Could not fetch block hash")?
+        .ok_or_else(|| anyhow!("Couldn't find block {block_number}"))?;
+    let metadata = state_get_metadata(&rpc_client, Some(block_hash))
+        .await
+        .with_context(|| "Could not fetch metadata")?;
+
+    Ok(metadata)
 }
 
 pub(super) async fn state_get_metadata(
