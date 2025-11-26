@@ -21,31 +21,32 @@ pub fn decode_storage_keys(
     bytes: &[u8],
     metadata: &RuntimeMetadata,
     historic_types: &TypeRegistrySet,
+    use_old_hashers: bool,
 ) -> anyhow::Result<StorageKeys> {
     match metadata {
         RuntimeMetadata::V8(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types)
+            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
         }
         RuntimeMetadata::V9(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types)
+            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
         }
         RuntimeMetadata::V10(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types)
+            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
         }
         RuntimeMetadata::V11(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types)
+            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
         }
         RuntimeMetadata::V12(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types)
+            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
         }
         RuntimeMetadata::V13(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types)
+            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
         }
         RuntimeMetadata::V14(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, &m.types)
+            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, &m.types, use_old_hashers)
         }
         RuntimeMetadata::V15(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, &m.types)
+            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, &m.types, use_old_hashers)
         }
         _ => bail!("Only metadata V8 - V15 is supported"),
     }
@@ -94,6 +95,7 @@ fn decode_storage_keys_inner<Info, Resolver>(
     bytes: &[u8],
     info: &Info,
     type_resolver: &Resolver,
+    use_old_hashers: bool,
 ) -> anyhow::Result<StorageKeys>
 where
     Info: frame_decode::storage::StorageTypeInfo,
@@ -101,11 +103,15 @@ where
     Resolver: TypeResolver<TypeId = Info::TypeId>,
 {
     let cursor = &mut &*bytes;
-    let key_info = frame_decode::storage::decode_storage_key(
-        pallet_name,
-        storage_entry,
+
+    let entry_info = info
+        .storage_info(pallet_name, storage_entry)
+        .map_err(|e| e.into_owned())?
+        .use_use_old_v9_storage_hashers(use_old_hashers);
+
+    let key_info = frame_decode::storage::decode_storage_key_with_info(
         cursor,
-        info,
+        &entry_info,
         type_resolver,
     )?;
 

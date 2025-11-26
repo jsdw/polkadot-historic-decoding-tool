@@ -65,6 +65,8 @@ pub(super) async fn fetch_metadata(url: Option<String>, block_number: u64) -> an
         .await
         .with_context(|| "Could not fetch block hash")?
         .ok_or_else(|| anyhow!("Couldn't find block {block_number}"))?;
+
+eprintln!("HASH: {block_number}: {block_hash}");
     let metadata = state_get_metadata(&rpc_client, Some(block_hash))
         .await
         .with_context(|| "Could not fetch metadata")?;

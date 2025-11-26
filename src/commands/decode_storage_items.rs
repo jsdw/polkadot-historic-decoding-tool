@@ -11,6 +11,7 @@ use crate::utils::{write_value, IndentedWriter};
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use frame_decode::storage::StorageHasher;
+use frame_decode::storage::{ StorageEntryInfo };
 use frame_metadata::RuntimeMetadata;
 use scale_info_legacy::ChainTypeRegistry;
 use std::collections::VecDeque;
@@ -106,6 +107,14 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                 .with_context(|| "Could not parse spec version JSON")
         })
         .transpose()?;
+    let chain_name = {
+        let url = urls.get();
+        let rpc_client = RpcClient::from_insecure_url(url).await.expect("Cannot instantiate RPC client to get chain name");
+        let rpcs = LegacyRpcMethods::<PolkadotConfig>::new(rpc_client);
+        rpcs.system_chain().await.unwrap_or_default()
+    };
+
+    println!("chain name: {chain_name}");
 
     let mut number = starting_number;
     'outer: loop {
@@ -167,24 +176,27 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                 }
             };
             let storage_entries: VecDeque<_> = {
-                let entries = frame_decode::helpers::list_storage_entries_any(&metadata);
+                let entries = list_storage_entries_any(&metadata);
                 match starting_entry {
-                    None => entries.map(|e| e.into_owned()).collect(),
+                    None => entries.collect(),
                     Some(se) => {
                         let se_pallet = se.pallet.to_ascii_lowercase();
                         let se_entry = se.entry.to_ascii_lowercase();
                         starting_entry = None;
 
                         entries
-                            .skip_while(|e| {
-                                e.pallet().to_ascii_lowercase() != se_pallet
-                                    || e.entry().to_ascii_lowercase() != se_entry
+                            .skip_while(|(pallet, entry)| {
+                                pallet.to_ascii_lowercase() != se_pallet
+                                    || entry.to_ascii_lowercase() != se_entry
                             })
-                            .map(|e| e.into_owned())
                             .collect()
                     }
                 }
             };
+
+            // When kusama uses V9 metadata below spec version 1032, the storage hasher encoding and
+            // decoding don't line up, and so we need to adjust:
+            let use_old_v9_hashers = chain_name == "Kusama" && runtime_version.spec_version < 1032;
 
             // Print header for block.
             {
@@ -253,7 +265,7 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                         let state = state.clone();
 
                         async move {
-                            let Some(storage_entry) = state.storage_entries.get(task_num as usize)
+                            let Some((pallet, entry)) = state.storage_entries.get(task_num as usize)
                             else {
                                 return Ok(None);
                             };
@@ -267,8 +279,6 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                                 frame_decode::helpers::type_registry_from_metadata_any(&metadata)?;
                             historic_types_for_spec.prepend(metadata_types);
 
-                            let pallet = storage_entry.pallet();
-                            let entry = storage_entry.entry();
                             let at = state.block_hash;
                             let root_key = {
                                 let mut hash = Vec::with_capacity(32);
@@ -366,6 +376,7 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                                     key_bytes,
                                     metadata,
                                     &historic_types_for_spec,
+                                    use_old_v9_hashers,
                                 )
                                 .with_context(|| {
                                     format!("Failed to decode storage key in {pallet}.{entry}")
@@ -540,7 +551,7 @@ pub fn check_is_iterable(
         info: &Info,
     ) -> anyhow::Result<bool> {
         let storage_info = info
-            .get_storage_info(pallet_name, storage_entry)
+            .storage_info(pallet_name, storage_entry)
             .map_err(|e| e.into_owned())?;
         let is_empty = storage_info.keys.is_empty();
         Ok(!is_empty)
@@ -579,10 +590,38 @@ fn pick_pseudorandom_block(spec_versions: Option<&[SpecVersionUpdate]>, number: 
     block_number
 }
 
+/// Returns an iterator listing the available storage entries in some metadata.
+pub fn list_storage_entries_any(
+    metadata: &RuntimeMetadata,
+) -> impl Iterator<Item = (String, String)> + use<'_> {
+    match metadata {
+        RuntimeMetadata::V0(_deprecated_metadata)
+        | RuntimeMetadata::V1(_deprecated_metadata)
+        | RuntimeMetadata::V2(_deprecated_metadata)
+        | RuntimeMetadata::V3(_deprecated_metadata)
+        | RuntimeMetadata::V4(_deprecated_metadata)
+        | RuntimeMetadata::V5(_deprecated_metadata)
+        | RuntimeMetadata::V6(_deprecated_metadata)
+        | RuntimeMetadata::V7(_deprecated_metadata) => {
+            Box::new(core::iter::empty()) as Box<dyn Iterator<Item = (String, String)>>
+        }
+        RuntimeMetadata::V8(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V9(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V10(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V11(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V12(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V13(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V14(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V15(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V16(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+    }
+}
+
+
 struct RunnerState {
     backend: LegacyBackend<PolkadotConfig>,
     block_hash: H256,
-    storage_entries: VecDeque<frame_decode::helpers::StorageEntry<'static>>,
+    storage_entries: VecDeque<(String, String)>,
     historic_types: Arc<ChainTypeRegistry>,
     metadata: Arc<RuntimeMetadata>,
     spec_version: u32,
