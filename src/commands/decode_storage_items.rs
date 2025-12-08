@@ -81,7 +81,7 @@ pub struct Opts {
 
     /// Configuration to ignore certain entries (there are various corrupted or troublesome values in old blocks).
     /// Configuration is of the form (can be JSON or YAML):
-    /// [{"block": 123, entry: "System.BlockHash"}, {"spec_version": 1234, "entry": "Foo.Bar"}]
+    /// [{"block": 123, "entry": "System.BlockHash", "ignore": "all"}, {"spec_version": 1234, "entry": "Foo.Bar", "ignore": "trailing_bytes"}]
     #[arg(long)]
     ignore: Option<PathBuf>,
 }
