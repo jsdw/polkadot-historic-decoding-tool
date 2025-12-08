@@ -2,13 +2,13 @@ use std::io::Write;
 
 use crate::utils;
 use crate::utils::runner::RoundRobin;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use clap::Parser;
 use parity_scale_codec::Encode;
 use subxt::ext::codec::Decode;
 use subxt::{Config, PolkadotConfig};
 use subxt_rpcs::{
-    client::{rpc_params, RpcClient},
+    client::{RpcClient, rpc_params},
     methods::legacy::{Bytes, LegacyRpcMethods, NumberOrHex},
 };
 
@@ -53,7 +53,10 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(super) async fn fetch_metadata(url: Option<String>, block_number: u64) -> anyhow::Result<frame_metadata::RuntimeMetadata> {
+pub(super) async fn fetch_metadata(
+    url: Option<String>,
+    block_number: u64,
+) -> anyhow::Result<frame_metadata::RuntimeMetadata> {
     // Use our the given URl, or polkadot RPC node urls if not given.
     let urls = RoundRobin::new(utils::url_or_polkadot_rpc_nodes(url.as_deref()));
 
@@ -66,7 +69,7 @@ pub(super) async fn fetch_metadata(url: Option<String>, block_number: u64) -> an
         .with_context(|| "Could not fetch block hash")?
         .ok_or_else(|| anyhow!("Couldn't find block {block_number}"))?;
 
-eprintln!("HASH: {block_number}: {block_hash}");
+    eprintln!("HASH: {block_number}: {block_hash}");
     let metadata = state_get_metadata(&rpc_client, Some(block_hash))
         .await
         .with_context(|| "Could not fetch metadata")?;

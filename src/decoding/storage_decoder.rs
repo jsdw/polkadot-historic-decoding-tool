@@ -22,32 +22,81 @@ pub fn decode_storage_keys(
     metadata: &RuntimeMetadata,
     historic_types: &TypeRegistrySet,
     use_old_hashers: bool,
+    ignore_trailing: bool,
 ) -> anyhow::Result<StorageKeys> {
     match metadata {
-        RuntimeMetadata::V8(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
-        }
-        RuntimeMetadata::V9(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
-        }
-        RuntimeMetadata::V10(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
-        }
-        RuntimeMetadata::V11(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
-        }
-        RuntimeMetadata::V12(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
-        }
-        RuntimeMetadata::V13(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, historic_types, use_old_hashers)
-        }
-        RuntimeMetadata::V14(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, &m.types, use_old_hashers)
-        }
-        RuntimeMetadata::V15(m) => {
-            decode_storage_keys_inner(pallet_name, storage_entry, bytes, m, &m.types, use_old_hashers)
-        }
+        RuntimeMetadata::V8(m) => decode_storage_keys_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            use_old_hashers,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V9(m) => decode_storage_keys_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            use_old_hashers,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V10(m) => decode_storage_keys_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            use_old_hashers,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V11(m) => decode_storage_keys_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            use_old_hashers,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V12(m) => decode_storage_keys_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            use_old_hashers,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V13(m) => decode_storage_keys_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            use_old_hashers,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V14(m) => decode_storage_keys_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            &m.types,
+            use_old_hashers,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V15(m) => decode_storage_keys_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            &m.types,
+            use_old_hashers,
+            ignore_trailing,
+        ),
         _ => bail!("Only metadata V8 - V15 is supported"),
     }
 }
@@ -59,32 +108,73 @@ pub fn decode_storage_value(
     bytes: &[u8],
     metadata: &RuntimeMetadata,
     historic_types: &TypeRegistrySet,
+    ignore_trailing: bool,
 ) -> anyhow::Result<StorageValue> {
     match metadata {
-        RuntimeMetadata::V8(m) => {
-            decode_storage_value_inner(pallet_name, storage_entry, bytes, m, historic_types)
-        }
-        RuntimeMetadata::V9(m) => {
-            decode_storage_value_inner(pallet_name, storage_entry, bytes, m, historic_types)
-        }
-        RuntimeMetadata::V10(m) => {
-            decode_storage_value_inner(pallet_name, storage_entry, bytes, m, historic_types)
-        }
-        RuntimeMetadata::V11(m) => {
-            decode_storage_value_inner(pallet_name, storage_entry, bytes, m, historic_types)
-        }
-        RuntimeMetadata::V12(m) => {
-            decode_storage_value_inner(pallet_name, storage_entry, bytes, m, historic_types)
-        }
-        RuntimeMetadata::V13(m) => {
-            decode_storage_value_inner(pallet_name, storage_entry, bytes, m, historic_types)
-        }
-        RuntimeMetadata::V14(m) => {
-            decode_storage_value_inner(pallet_name, storage_entry, bytes, m, &m.types)
-        }
-        RuntimeMetadata::V15(m) => {
-            decode_storage_value_inner(pallet_name, storage_entry, bytes, m, &m.types)
-        }
+        RuntimeMetadata::V8(m) => decode_storage_value_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V9(m) => decode_storage_value_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V10(m) => decode_storage_value_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V11(m) => decode_storage_value_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V12(m) => decode_storage_value_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V13(m) => decode_storage_value_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            historic_types,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V14(m) => decode_storage_value_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            &m.types,
+            ignore_trailing,
+        ),
+        RuntimeMetadata::V15(m) => decode_storage_value_inner(
+            pallet_name,
+            storage_entry,
+            bytes,
+            m,
+            &m.types,
+            ignore_trailing,
+        ),
         _ => bail!("Only metadata V8 - V15 is supported"),
     }
 }
@@ -96,6 +186,7 @@ fn decode_storage_keys_inner<Info, Resolver>(
     info: &Info,
     type_resolver: &Resolver,
     use_old_hashers: bool,
+    ignore_trailing: bool,
 ) -> anyhow::Result<StorageKeys>
 where
     Info: frame_decode::storage::StorageTypeInfo,
@@ -109,11 +200,8 @@ where
         .map_err(|e| e.into_owned())?
         .use_use_old_v9_storage_hashers(use_old_hashers);
 
-    let key_info = frame_decode::storage::decode_storage_key_with_info(
-        cursor,
-        &entry_info,
-        type_resolver,
-    )?;
+    let key_info =
+        frame_decode::storage::decode_storage_key_with_info(cursor, &entry_info, type_resolver)?;
 
     let decoded: anyhow::Result<_> = key_info
         .parts()
@@ -141,7 +229,7 @@ where
         })
         .collect();
 
-    if !cursor.is_empty() && decoded.is_ok() {
+    if !ignore_trailing && !cursor.is_empty() && decoded.is_ok() {
         let decoded = print_storage_key_res(&decoded)?;
         bail!(
             "{} leftover bytes decoding storage keys: {cursor:?}. decoded: {decoded}",
@@ -228,6 +316,7 @@ fn decode_storage_value_inner<Info, Resolver>(
     bytes: &[u8],
     info: &Info,
     type_resolver: &Resolver,
+    ignore_trailing: bool,
 ) -> anyhow::Result<StorageValue>
 where
     Info: frame_decode::storage::StorageTypeInfo,
@@ -245,7 +334,7 @@ where
     )?
     .map_context(|id| id.to_string());
 
-    if !cursor.is_empty() {
+    if !ignore_trailing && !cursor.is_empty() {
         let mut value_string = String::new();
         crate::utils::write_value_fmt(&mut value_string, &value)?;
         bail!(

@@ -2,7 +2,7 @@ use anyhow::bail;
 use frame_metadata::RuntimeMetadata;
 use scale_info_legacy::TypeRegistrySet;
 use scale_type_resolver::TypeResolver;
-use subxt::utils::{to_hex, AccountId32};
+use subxt::utils::{AccountId32, to_hex};
 
 #[derive(Debug)]
 pub enum Extrinsic {

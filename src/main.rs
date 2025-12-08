@@ -17,7 +17,7 @@ enum Commands {
     FetchMetadata(commands::fetch_metadata::Opts),
     /// Fetch all of the metadatas for some chain given a spec version update list.
     /// This will obtain the spec versions internally if none are given.
-    /// 
+    ///
     /// Note: uses state_getMetadata for historic support and will not hand back anything
     /// greater than V14 metadata as a result.
     FetchMetadatas(commands::fetch_metadatas::Opts),

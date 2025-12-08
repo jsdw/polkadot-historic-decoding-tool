@@ -1,10 +1,10 @@
+use super::find_spec_changes::{SpecVersionUpdate, get_spec_version_changes};
 use crate::commands::find_spec_changes;
 use anyhow::Context;
 use clap::Parser;
 use parity_scale_codec::Encode;
-use super::find_spec_changes::{get_spec_version_changes, SpecVersionUpdate};
-use std::path::PathBuf;
 use std::io::Write;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -58,17 +58,15 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
         let spec = spec_version.spec_version;
 
         eprintln!("Fetching metadata for spec version {spec}");
-        let metadata = super::fetch_metadata::fetch_metadata(
-            opts.url.clone(), 
-            spec_version.block
-        ).await?;
+        let metadata =
+            super::fetch_metadata::fetch_metadata(opts.url.clone(), spec_version.block).await?;
 
         // eg v14,v15,v16
         let version = metadata.version();
 
         // Skip this metadata if the version has been seen before.
         if version == last_seen_version && opts.only_unique_versions {
-            continue
+            continue;
         }
 
         last_seen_version = version;

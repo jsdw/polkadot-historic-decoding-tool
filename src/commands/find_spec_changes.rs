@@ -1,12 +1,12 @@
 use crate::utils;
 use crate::utils::binary_chopper::{BinaryChopper, Next};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use clap::Parser;
+use subxt::PolkadotConfig;
 use subxt::backend::{
-    legacy::{rpc_methods::NumberOrHex, LegacyRpcMethods},
+    legacy::{LegacyRpcMethods, rpc_methods::NumberOrHex},
     rpc::RpcClient,
 };
-use subxt::PolkadotConfig;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -72,7 +72,9 @@ pub async fn get_spec_version_changes(opts: Opts) -> anyhow::Result<Vec<SpecVers
 
         // We've hit the end; if the block number provided == end, we're done.
         if block_num2 != end {
-            eprintln!("Found spec version change at block {block_num2} (from spec version {spec_version1} to {spec_version2})");
+            eprintln!(
+                "Found spec version change at block {block_num2} (from spec version {spec_version1} to {spec_version2})"
+            );
             start = block_num2;
             low_version = spec_version2;
             changes.push((block_num2, spec_version2));

@@ -1,24 +1,24 @@
-use crate::decoding::extrinsic_decoder::{decode_extrinsic, Extrinsic, ExtrinsicCallData};
+use crate::decoding::extrinsic_decoder::{Extrinsic, ExtrinsicCallData, decode_extrinsic};
 use crate::utils;
 use crate::utils::runner::{RoundRobin, Runner};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use clap::Parser;
 use frame_metadata::RuntimeMetadata;
 use scale_info_legacy::{ChainTypeRegistry, TypeRegistrySet};
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
+use subxt::{Config, PolkadotConfig};
 use subxt::{
     backend::{
         legacy::{
-            rpc_methods::{Bytes, NumberOrHex},
             LegacyRpcMethods,
+            rpc_methods::{Bytes, NumberOrHex},
         },
         rpc::RpcClient,
     },
     utils::H256,
 };
-use subxt::{Config, PolkadotConfig};
 use tokio::sync::Mutex;
 
 #[derive(Parser)]

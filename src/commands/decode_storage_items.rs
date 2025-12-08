@@ -1,17 +1,16 @@
-use self::skip::SkipDecoding;
 use super::fetch_metadata::state_get_metadata;
 use super::find_spec_changes::SpecVersionUpdate;
 use crate::decoding::storage_decoder;
-use crate::decoding::storage_decoder::{write_storage_keys, StorageKey};
+use crate::decoding::storage_decoder::{StorageKey, write_storage_keys};
 use crate::utils::{
     self,
     runner::{RoundRobin, Runner},
 };
-use crate::utils::{write_value, IndentedWriter};
-use anyhow::{anyhow, Context};
+use crate::utils::{IndentedWriter, write_value};
+use anyhow::{Context, anyhow};
 use clap::Parser;
+use frame_decode::storage::StorageEntryInfo;
 use frame_decode::storage::StorageHasher;
-use frame_decode::storage::{ StorageEntryInfo };
 use frame_metadata::RuntimeMetadata;
 use scale_info_legacy::ChainTypeRegistry;
 use std::collections::VecDeque;
@@ -22,14 +21,16 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 use subxt::{
+    PolkadotConfig,
     backend::{
-        legacy::{rpc_methods::Bytes, LegacyBackend, LegacyRpcMethods},
-        rpc::RpcClient,
         Backend,
+        legacy::{LegacyBackend, LegacyRpcMethods, rpc_methods::Bytes},
+        rpc::RpcClient,
     },
     utils::H256,
-    PolkadotConfig,
 };
+
+use self::ignore::IgnoreConfig;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -77,6 +78,12 @@ pub struct Opts {
     /// Print the hex encoded storage key/value bytes too.
     #[arg(long)]
     print_bytes: bool,
+
+    /// Configuration to ignore certain entries (there are various corrupted or troublesome values in old blocks).
+    /// Configuration is of the form (can be JSON or YAML):
+    /// [{"block": 123, entry: "System.BlockHash"}, {"spec_version": 1234, "entry": "Foo.Bar"}]
+    #[arg(long)]
+    ignore: Option<PathBuf>,
 }
 
 pub async fn run(opts: Opts) -> anyhow::Result<()> {
@@ -107,14 +114,30 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                 .with_context(|| "Could not parse spec version JSON")
         })
         .transpose()?;
+
     let chain_name = {
         let url = urls.get();
-        let rpc_client = RpcClient::from_insecure_url(url).await.expect("Cannot instantiate RPC client to get chain name");
+        let rpc_client = RpcClient::from_insecure_url(url)
+            .await
+            .expect("Cannot instantiate RPC client to get chain name");
         let rpcs = LegacyRpcMethods::<PolkadotConfig>::new(rpc_client);
         rpcs.system_chain().await.unwrap_or_default()
     };
+    println!("Chain: {chain_name}");
 
-    println!("chain name: {chain_name}");
+    let ignore_config = if let Some(path) = opts.ignore {
+        let ignore_config_str =
+            std::fs::read_to_string(&path).with_context(|| "Could not load ignore config")?;
+        let conf = serde_yaml::from_str::<IgnoreConfig>(&ignore_config_str)
+            .with_context(|| "Can't parse ignore config from JSON")?;
+        conf
+    } else if chain_name == "Polkadot" {
+        IgnoreConfig::default_for_polkadot_rc()
+    } else if chain_name == "Kusama" {
+        IgnoreConfig::default_for_kusama_rc()
+    } else {
+        IgnoreConfig::default()
+    };
 
     let mut number = starting_number;
     'outer: loop {
@@ -215,286 +238,324 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
             let stop2 = stop.clone();
 
             // try to decode storage entries in parallel.
-            let runner =
-                Runner::new(
-                    (
-                        block_hash,
-                        storage_entries,
-                        urls.clone(),
-                        historic_types.clone(),
-                        metadata,
-                        runtime_version.spec_version,
-                    ),
-                    // Connect to an RPC client to start decoding storage entries
-                    |_task_idx,
-                     (
-                        block_hash,
-                        storage_entries,
-                        urls,
-                        historic_types,
-                        metadata,
-                        spec_version,
-                    )| {
-                        let url = urls.get().clone();
-                        let storage_entries = storage_entries.clone();
-                        let block_hash = *block_hash;
-                        let historic_types = historic_types.clone();
-                        let metadata = metadata.clone();
-                        let spec_version = *spec_version;
-                        let skipper = SkipDecoding::new();
+            let runner = Runner::new(
+                (
+                    block_hash,
+                    storage_entries,
+                    urls.clone(),
+                    historic_types.clone(),
+                    metadata,
+                    runtime_version.spec_version,
+                    ignore_config.clone(),
+                ),
+                // Connect to an RPC client to start decoding storage entries
+                |_task_idx,
+                 (
+                    block_hash,
+                    storage_entries,
+                    urls,
+                    historic_types,
+                    metadata,
+                    spec_version,
+                    ignore_config,
+                )| {
+                    let url = urls.get().clone();
+                    let storage_entries = storage_entries.clone();
+                    let block_hash = *block_hash;
+                    let historic_types = historic_types.clone();
+                    let ignore_config = ignore_config.clone();
+                    let metadata = metadata.clone();
+                    let spec_version = *spec_version;
 
-                        async move {
-                            let rpc_client = RpcClient::from_insecure_url(url).await?;
-                            let backend = LegacyBackend::builder()
-                                .storage_page_size(128)
-                                .build(rpc_client);
+                    async move {
+                        let rpc_client = RpcClient::from_insecure_url(url).await?;
+                        let backend = LegacyBackend::builder()
+                            .storage_page_size(128)
+                            .build(rpc_client);
 
-                            Ok(Some(Arc::new(RunnerState {
-                                backend,
-                                block_hash,
-                                storage_entries,
-                                historic_types,
-                                metadata,
-                                spec_version,
-                                skipper,
-                            })))
+                        Ok(Some(Arc::new(RunnerState {
+                            backend,
+                            block_hash,
+                            storage_entries,
+                            historic_types,
+                            metadata,
+                            spec_version,
+                            ignore_config,
+                        })))
+                    }
+                },
+                // Based on task number, decode an entry from the list, returning None when number exceeds list length.
+                move |task_num, state| {
+                    let state = state.clone();
+
+                    async move {
+                        let Some((pallet, entry)) = state.storage_entries.get(task_num as usize)
+                        else {
+                            return Ok(None);
+                        };
+
+                        if state.ignore_config.should_skip_entry(
+                            pallet,
+                            entry,
+                            state.spec_version,
+                            block_number,
+                        ) {
+                            return Ok(None);
                         }
-                    },
-                    // Based on task number, decode an entry from the list, returning None when number exceeds list length.
-                    move |task_num, state| {
-                        let state = state.clone();
 
-                        async move {
-                            let Some((pallet, entry)) = state.storage_entries.get(task_num as usize)
-                            else {
-                                return Ok(None);
-                            };
-                            let metadata = &state.metadata;
-                            let mut historic_types_for_spec = state
-                                .historic_types
-                                .for_spec_version(state.spec_version as u64)
-                                .to_owned();
+                        let ignore_trailing_bytes =
+                            state.ignore_config.should_ignore_trailing_bytes(
+                                pallet,
+                                entry,
+                                state.spec_version,
+                                block_number,
+                            );
 
-                            let metadata_types =
-                                frame_decode::helpers::type_registry_from_metadata_any(&metadata)?;
-                            historic_types_for_spec.prepend(metadata_types);
+                        let metadata = &state.metadata;
+                        let mut historic_types_for_spec = state
+                            .historic_types
+                            .for_spec_version(state.spec_version as u64)
+                            .to_owned();
 
-                            let at = state.block_hash;
-                            let root_key = {
-                                let mut hash = Vec::with_capacity(32);
-                                hash.extend(&sp_crypto_hashing::twox_128(pallet.as_bytes()));
-                                hash.extend(&sp_crypto_hashing::twox_128(entry.as_bytes()));
-                                hash
-                            };
+                        let metadata_types =
+                            frame_decode::helpers::type_registry_from_metadata_any(&metadata)?;
+                        historic_types_for_spec.prepend(metadata_types);
 
-                            // Iterate or fetch single value depending on entry.
-                            let is_iterable = check_is_iterable(pallet, entry, &state.metadata)?;
-                            let mut values = if is_iterable {
-                                state.backend
+                        let at = state.block_hash;
+                        let root_key = {
+                            let mut hash = Vec::with_capacity(32);
+                            hash.extend(&sp_crypto_hashing::twox_128(pallet.as_bytes()));
+                            hash.extend(&sp_crypto_hashing::twox_128(entry.as_bytes()));
+                            hash
+                        };
+
+                        if state.ignore_config.should_skip_entry_at_key(
+                            &root_key,
+                            state.spec_version,
+                            block_number,
+                        ) {
+                            return Ok(None);
+                        }
+
+                        // Iterate or fetch single value depending on entry.
+                        let is_iterable = check_is_iterable(pallet, entry, &state.metadata)?;
+                        let mut values = if is_iterable {
+                            state.backend
                                 .storage_fetch_descendant_values(root_key, at)
                                 .await
                                 .with_context(|| format!("Failed to get a stream of storage items for {pallet}.{entry}"))
-                            } else {
-                                state
-                                    .backend
-                                    .storage_fetch_values(vec![root_key], at)
-                                    .await
-                                    .with_context(|| {
-                                        format!("Failed to fetch value at {pallet}.{entry}")
-                                    })
-                            }?;
-
-                            let mut keyvals = vec![];
-
-                            // Decode each value we get back.
-                            let mut n = 0;
-                            while let Some(value) = values.next().await {
-                                if max_storage_entries > 0 && n >= max_storage_entries {
-                                    break;
-                                }
-
-                                let value = match value {
-                                    Ok(val) => val,
-                                    // Some storage values are too big for the RPC client to download (eg exceed 10MB).
-                                    // For now, this hack just ignores such errors.
-                                    Err(subxt::Error::Rpc(
-                                        subxt::error::RpcError::ClientError(e),
-                                    )) => {
-                                        let err = e.to_string();
-                                        if err.contains("message too large")
-                                            || err.contains("Response is too big")
-                                        {
-                                            let err = scale_value::Value::string(
-                                                "Skipping this entry: it is too large",
-                                            )
-                                            .map_context(|_| "Unknown".to_string());
-                                            keyvals.push(DecodedStorageKeyVal {
-                                                key_bytes: Vec::new(),
-                                                key: Ok(vec![StorageKey {
-                                                    hash: vec![],
-                                                    value: Some(err.clone()),
-                                                    hasher: StorageHasher::Identity,
-                                                }]),
-                                                value_bytes: Vec::new(),
-                                                value: Ok(err),
-                                            });
-                                            continue;
-                                        }
-                                        return Err(subxt::Error::Rpc(subxt::error::RpcError::ClientError(e)))
-                                        .with_context(|| format!("Failed to get storage item in stream for {pallet}.{entry}"));
-                                    }
-                                    Err(e) => {
-                                        return Err(e).with_context(|| format!("Failed to get storage item in stream for {pallet}.{entry}"));
-                                    }
-                                };
-
-                                let key_bytes = &value.key;
-                                let value_bytes = &value.value;
-
-                                // Skip over corrupt entries.
-                                if state.skipper.should_skip(state.spec_version, key_bytes) {
-                                    let err = scale_value::Value::string(
-                                        "Skipping this entry: it is corrupt",
-                                    )
-                                    .map_context(|_| "Unknown".to_string());
-                                    keyvals.push(DecodedStorageKeyVal {
-                                        key_bytes: Vec::new(),
-                                        key: Ok(vec![StorageKey {
-                                            hash: vec![],
-                                            value: Some(err.clone()),
-                                            hasher: StorageHasher::Identity,
-                                        }]),
-                                        value_bytes: value_bytes.clone(),
-                                        value: Ok(err),
-                                    });
-                                    continue;
-                                }
-
-                                let key = storage_decoder::decode_storage_keys(
-                                    pallet,
-                                    entry,
-                                    key_bytes,
-                                    metadata,
-                                    &historic_types_for_spec,
-                                    use_old_v9_hashers,
-                                )
+                        } else {
+                            state
+                                .backend
+                                .storage_fetch_values(vec![root_key], at)
+                                .await
                                 .with_context(|| {
-                                    format!("Failed to decode storage key in {pallet}.{entry}")
-                                });
-                                let value = storage_decoder::decode_storage_value(
-                                    pallet,
-                                    entry,
-                                    &value.value,
-                                    metadata,
-                                    &historic_types_for_spec,
-                                )
-                                .with_context(|| {
-                                    format!("Failed to decode storage value in {pallet}.{entry}")
-                                });
+                                    format!("Failed to fetch value at {pallet}.{entry}")
+                                })
+                        }?;
 
-                                keyvals.push(DecodedStorageKeyVal {
-                                    key_bytes: key_bytes.clone(),
-                                    key,
-                                    value_bytes: value_bytes.clone(),
-                                    value,
-                                });
+                        let mut keyvals = vec![];
 
-                                n += 1;
+                        // Decode each value we get back.
+                        let mut n = 0;
+                        while let Some(value) = values.next().await {
+                            if max_storage_entries > 0 && n >= max_storage_entries {
+                                break;
                             }
 
-                            Ok(Some(DecodedStorageEntry {
-                                pallet: pallet.to_string(),
-                                entry: entry.to_string(),
-                                keyvals,
-                            }))
-                        }
-                    },
-                    // Output details.
-                    move |output| {
-                        if output.keyvals.is_empty() {
-                            return Ok(());
-                        }
+                            let value = match value {
+                                Ok(val) => val,
+                                // Some storage values are too big for the RPC client to download (eg exceed 10MB).
+                                // For now, this hack just ignores such errors.
+                                Err(subxt::Error::Rpc(subxt::error::RpcError::ClientError(e))) => {
+                                    let err = e.to_string();
+                                    if err.contains("message too large")
+                                        || err.contains("Response is too big")
+                                    {
+                                        let err = scale_value::Value::string(
+                                            "Skipping this entry: it is too large",
+                                        )
+                                        .map_context(|_| "Unknown".to_string());
+                                        keyvals.push(DecodedStorageKeyVal {
+                                            key_bytes: Vec::new(),
+                                            key: Ok(vec![StorageKey {
+                                                hash: vec![],
+                                                value: Some(err.clone()),
+                                                hasher: StorageHasher::Identity,
+                                            }]),
+                                            value_bytes: Vec::new(),
+                                            value: Ok(err),
+                                        });
+                                        continue;
+                                    }
+                                    return Err(subxt::Error::Rpc(subxt::error::RpcError::ClientError(e)))
+                                        .with_context(|| format!("Failed to get storage item in stream for {pallet}.{entry}"));
+                                }
+                                Err(e) => {
+                                    return Err(e).with_context(|| format!("Failed to get storage item in stream for {pallet}.{entry}"));
+                                }
+                            };
 
-                        let mut stdout = std::io::stdout().lock();
+                            let key_bytes = &value.key;
+                            let value_bytes = &value.value;
 
-                        let is_error = output
-                            .keyvals
-                            .iter()
-                            .any(|kv| kv.key.is_err() || kv.value.is_err());
-                        let should_print_header = !errors_only || (errors_only && is_error);
-                        let should_print_success = !errors_only;
-
-                        if should_print_header {
-                            writeln!(
-                                stdout,
-                                "\n{}.{} (b:{block_number}, n:{number})",
-                                output.pallet, output.entry
-                            )?;
-                        }
-
-                        if print_bytes {
-                            let out = output
-                                .keyvals
-                                .iter()
-                                .map(|kv| {
-                                    (Bytes(kv.key_bytes.clone()), Bytes(kv.value_bytes.clone()))
-                                })
-                                .collect::<Vec<_>>();
-                            let out_str = serde_json::to_string_pretty(&out).unwrap();
-                            writeln!(stdout, "  Keyvals hex: {out_str}")?;
-                        }
-
-                        for (
-                            idx,
-                            DecodedStorageKeyVal {
-                                key_bytes: _,
-                                key,
-                                value_bytes: _,
-                                value,
-                            },
-                        ) in output.keyvals.iter().enumerate()
-                        {
-                            if key.is_ok() && value.is_ok() && !should_print_success {
+                            if state.ignore_config.should_skip_entry_at_key(
+                                key_bytes,
+                                state.spec_version,
+                                block_number,
+                            ) {
+                                let err = scale_value::Value::string(
+                                    "Skipping this entry: it's in our ignore config",
+                                )
+                                .map_context(|_| "Unknown".to_string());
+                                keyvals.push(DecodedStorageKeyVal {
+                                    key_bytes: Vec::new(),
+                                    key: Ok(vec![StorageKey {
+                                        hash: vec![],
+                                        value: Some(err.clone()),
+                                        hasher: StorageHasher::Identity,
+                                    }]),
+                                    value_bytes: value_bytes.clone(),
+                                    value: Ok(err),
+                                });
                                 continue;
                             }
 
-                            write!(stdout, "  [{idx}] ")?;
-                            match &key {
-                                Ok(key) => {
-                                    write_storage_keys(IndentedWriter::<2, _>(&mut stdout), key)?;
-                                }
-                                Err(e) => {
-                                    write!(
-                                        IndentedWriter::<2, _>(&mut stdout),
-                                        "Key Error (block {block_number}, number {number}): {e:?}"
-                                    )?;
-                                }
-                            }
-                            write!(stdout, "\n    - ")?;
-                            match &value {
-                                Ok(value) => {
-                                    write_value(IndentedWriter::<6, _>(&mut stdout), value)?;
-                                }
-                                Err(e) => {
-                                    write!(IndentedWriter::<6, _>(&mut stdout), "Value Error (block {block_number}, number {number}): {e:?}")?;
-                                }
-                            }
-                            writeln!(stdout)?;
+                            let ignore_trailing = ignore_trailing_bytes
+                                || state.ignore_config.should_ignore_trailing_bytes_at_key(
+                                    key_bytes,
+                                    state.spec_version,
+                                    block_number,
+                                );
 
-                            let is_this_error = key.is_err() || value.is_err();
-                            if is_this_error && !continue_on_error {
-                                break;
-                            }
+                            let key = storage_decoder::decode_storage_keys(
+                                pallet,
+                                entry,
+                                key_bytes,
+                                metadata,
+                                &historic_types_for_spec,
+                                use_old_v9_hashers,
+                                ignore_trailing,
+                            )
+                            .with_context(|| {
+                                format!("Failed to decode storage key in {pallet}.{entry}")
+                            });
+                            let value = storage_decoder::decode_storage_value(
+                                pallet,
+                                entry,
+                                &value.value,
+                                metadata,
+                                &historic_types_for_spec,
+                                ignore_trailing,
+                            )
+                            .with_context(|| {
+                                format!("Failed to decode storage value in {pallet}.{entry}")
+                            });
+
+                            keyvals.push(DecodedStorageKeyVal {
+                                key_bytes: key_bytes.clone(),
+                                key,
+                                value_bytes: value_bytes.clone(),
+                                value,
+                            });
+
+                            n += 1;
                         }
 
-                        if !continue_on_error && is_error {
-                            stop2.store(true, Ordering::Relaxed);
-                            Err(anyhow!("Stopping: error decoding storage entries."))
-                        } else {
-                            Ok(())
+                        Ok(Some(DecodedStorageEntry {
+                            pallet: pallet.to_string(),
+                            entry: entry.to_string(),
+                            keyvals,
+                        }))
+                    }
+                },
+                // Output details.
+                move |output| {
+                    if output.keyvals.is_empty() {
+                        return Ok(());
+                    }
+
+                    let mut stdout = std::io::stdout().lock();
+
+                    let is_error = output
+                        .keyvals
+                        .iter()
+                        .any(|kv| kv.key.is_err() || kv.value.is_err());
+                    let should_print_header = !errors_only || (errors_only && is_error);
+                    let should_print_success = !errors_only;
+
+                    if should_print_header {
+                        writeln!(
+                            stdout,
+                            "\n{}.{} (b:{block_number}, n:{number})",
+                            output.pallet, output.entry
+                        )?;
+                    }
+
+                    if print_bytes {
+                        let out = output
+                            .keyvals
+                            .iter()
+                            .map(|kv| (Bytes(kv.key_bytes.clone()), Bytes(kv.value_bytes.clone())))
+                            .collect::<Vec<_>>();
+                        let out_str = serde_json::to_string_pretty(&out).unwrap();
+                        writeln!(stdout, "  Keyvals hex: {out_str}")?;
+                    }
+
+                    for (
+                        idx,
+                        DecodedStorageKeyVal {
+                            key_bytes: _,
+                            key,
+                            value_bytes: _,
+                            value,
+                        },
+                    ) in output.keyvals.iter().enumerate()
+                    {
+                        if key.is_ok() && value.is_ok() && !should_print_success {
+                            continue;
                         }
-                    },
-                );
+
+                        write!(stdout, "  [{idx}] ")?;
+                        match &key {
+                            Ok(key) => {
+                                write_storage_keys(IndentedWriter::<2, _>(&mut stdout), key)?;
+                            }
+                            Err(e) => {
+                                write!(
+                                    IndentedWriter::<2, _>(&mut stdout),
+                                    "Key Error (block {block_number}, number {number}): {e:?}"
+                                )?;
+                            }
+                        }
+                        write!(stdout, "\n    - ")?;
+                        match &value {
+                            Ok(value) => {
+                                write_value(IndentedWriter::<6, _>(&mut stdout), value)?;
+                            }
+                            Err(e) => {
+                                write!(
+                                    IndentedWriter::<6, _>(&mut stdout),
+                                    "Value Error (block {block_number}, number {number}): {e:?}"
+                                )?;
+                            }
+                        }
+                        writeln!(stdout)?;
+
+                        let is_this_error = key.is_err() || value.is_err();
+                        if is_this_error && !continue_on_error {
+                            break;
+                        }
+                    }
+
+                    if !continue_on_error && is_error {
+                        stop2.store(true, Ordering::Relaxed);
+                        Err(anyhow!("Stopping: error decoding storage entries."))
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
 
             // Decode storage entries in the block.
             let _ = runner.run(connections, 0).await;
@@ -510,33 +571,6 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-/// This allows us to skip decoding entries that are corrupt or otherwise undecodeable.
-mod skip {
-    pub struct SkipDecoding(Vec<(Vec<u8>, u32)>);
-
-    impl SkipDecoding {
-        /// This defines the hardcoded items to skip.
-        pub fn new() -> Self {
-            SkipDecoding(vec![
-                (
-                    // Proxy.proxies has a corrupt entry in it for account ID 0x0E6DE68B13B82479FBE988AB9ECB16BAD446B67B993CDD9198CD41C7C6259C49:
-                    hex::decode("1809d78346727a0ef58c0fa03bafa3231d885dcfb277f185f2d8e62a5f290c854d2d16b4be62d0e00e6de68b13b82479fbe988ab9ecb16bad446b67b993cdd9198cd41c7c6259c49").unwrap(),
-                    // spec version it becomes a problem:
-                    23
-                )
-            ])
-        }
-
-        /// Should we skip some entry.
-        pub fn should_skip(&self, spec_version: u32, key: &[u8]) -> bool {
-            self.0
-                .iter()
-                .find(|(skip_key, skip_spec)| *skip_key == key && *skip_spec <= spec_version)
-                .is_some()
-        }
-    }
 }
 
 /// Is this storage entry iterable? If so, we'll iterate it. If not, we can just retrieve the single entry.
@@ -605,18 +639,44 @@ pub fn list_storage_entries_any(
         | RuntimeMetadata::V7(_deprecated_metadata) => {
             Box::new(core::iter::empty()) as Box<dyn Iterator<Item = (String, String)>>
         }
-        RuntimeMetadata::V8(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
-        RuntimeMetadata::V9(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
-        RuntimeMetadata::V10(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
-        RuntimeMetadata::V11(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
-        RuntimeMetadata::V12(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
-        RuntimeMetadata::V13(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
-        RuntimeMetadata::V14(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
-        RuntimeMetadata::V15(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
-        RuntimeMetadata::V16(m) => Box::new(m.storage_tuples().map(|(p,n)| (p.into_owned(), n.into_owned()))),
+        RuntimeMetadata::V8(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
+        RuntimeMetadata::V9(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
+        RuntimeMetadata::V10(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
+        RuntimeMetadata::V11(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
+        RuntimeMetadata::V12(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
+        RuntimeMetadata::V13(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
+        RuntimeMetadata::V14(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
+        RuntimeMetadata::V15(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
+        RuntimeMetadata::V16(m) => Box::new(
+            m.storage_tuples()
+                .map(|(p, n)| (p.into_owned(), n.into_owned())),
+        ),
     }
 }
-
 
 struct RunnerState {
     backend: LegacyBackend<PolkadotConfig>,
@@ -625,7 +685,7 @@ struct RunnerState {
     historic_types: Arc<ChainTypeRegistry>,
     metadata: Arc<RuntimeMetadata>,
     spec_version: u32,
-    skipper: SkipDecoding,
+    ignore_config: IgnoreConfig,
 }
 
 struct DecodedStorageEntry {
@@ -662,5 +722,266 @@ impl std::str::FromStr for StartingEntry {
             pallet: pallet.to_string(),
             entry: entry.to_string(),
         })
+    }
+}
+
+mod ignore {
+    /// This is the shape of the --ignore config that we can point to.
+    #[derive(serde::Deserialize, Clone, Default, Debug)]
+    pub struct IgnoreConfig(Vec<IgnoreConfigEntry>);
+
+    impl IgnoreConfig {
+        pub fn default_for_polkadot_rc() -> Self {
+            Self(vec![
+                IgnoreConfigEntry::AtSpecVersion {
+                    // Proxy.proxies has a corrupt entry in it for account ID 0x0E6DE68B13B82479FBE988AB9ECB16BAD446B67B993CDD9198CD41C7C6259C49:
+                    entry: Entry::new_key(hex::decode("1809d78346727a0ef58c0fa03bafa3231d885dcfb277f185f2d8e62a5f290c854d2d16b4be62d0e00e6de68b13b82479fbe988ab9ecb16bad446b67b993cdd9198cd41c7c6259c49").unwrap()),
+                    // spec version it becomes a problem:
+                    spec_version: 23,
+                    // just ignore the whole entry.
+                    ignore: Ignore::All
+                }
+            ])
+        }
+
+        pub fn default_for_kusama_rc() -> Self {
+            Self(vec![IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2005,
+                entry: Entry::new("System", "BlockHash"),
+                ignore: Ignore::TrailingBytes,
+            }])
+        }
+
+        pub fn should_skip_entry(
+            &self,
+            pallet_name: &str,
+            entry_name: &str,
+            spec_vers: u32,
+            block_number: u64,
+        ) -> bool {
+            self.0.iter().any(|i| match i {
+                IgnoreConfigEntry::AtBlock {
+                    block,
+                    entry,
+                    ignore,
+                } => {
+                    ignore.ignore_all()
+                        && *block == block_number
+                        && entry.is(pallet_name, entry_name)
+                }
+                IgnoreConfigEntry::AtSpecVersion {
+                    spec_version,
+                    entry,
+                    ignore,
+                } => {
+                    ignore.ignore_all()
+                        && *spec_version == spec_vers
+                        && entry.is(pallet_name, entry_name)
+                }
+            })
+        }
+        pub fn should_skip_entry_at_key(
+            &self,
+            key: &[u8],
+            spec_vers: u32,
+            block_number: u64,
+        ) -> bool {
+            self.0.iter().any(|i| match i {
+                IgnoreConfigEntry::AtBlock {
+                    block,
+                    entry,
+                    ignore,
+                } => ignore.ignore_all() && *block == block_number && entry.is_key(key),
+                IgnoreConfigEntry::AtSpecVersion {
+                    spec_version,
+                    entry,
+                    ignore,
+                } => ignore.ignore_all() && *spec_version == spec_vers && entry.is_key(key),
+            })
+        }
+        pub fn should_ignore_trailing_bytes(
+            &self,
+            pallet_name: &str,
+            entry_name: &str,
+            spec_vers: u32,
+            block_number: u64,
+        ) -> bool {
+            self.0.iter().any(|i| match i {
+                IgnoreConfigEntry::AtBlock {
+                    block,
+                    entry,
+                    ignore,
+                } => {
+                    ignore.ignore_trailing_bytes()
+                        && *block == block_number
+                        && entry.is(pallet_name, entry_name)
+                }
+                IgnoreConfigEntry::AtSpecVersion {
+                    spec_version,
+                    entry,
+                    ignore,
+                } => {
+                    ignore.ignore_trailing_bytes()
+                        && *spec_version == spec_vers
+                        && entry.is(pallet_name, entry_name)
+                }
+            })
+        }
+        pub fn should_ignore_trailing_bytes_at_key(
+            &self,
+            key: &[u8],
+            spec_vers: u32,
+            block_number: u64,
+        ) -> bool {
+            self.0.iter().any(|i| match i {
+                IgnoreConfigEntry::AtBlock {
+                    block,
+                    entry,
+                    ignore,
+                } => ignore.ignore_trailing_bytes() && *block == block_number && entry.is_key(key),
+                IgnoreConfigEntry::AtSpecVersion {
+                    spec_version,
+                    entry,
+                    ignore,
+                } => {
+                    ignore.ignore_trailing_bytes()
+                        && *spec_version == spec_vers
+                        && entry.is_key(key)
+                }
+            })
+        }
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize)]
+    #[serde(untagged)]
+    enum IgnoreConfigEntry {
+        AtBlock {
+            /// The block to ignore the given entry at:
+            block: u64,
+            /// The entry to ignore, in the form PalletName.EntryName
+            entry: Entry,
+            /// What to ignore. If None, then ignore the whole entry
+            ignore: Ignore,
+        },
+        AtSpecVersion {
+            /// The block to ignore the given entry at:
+            spec_version: u32,
+            /// The entry to ignore, in the form PalletName.EntryName
+            entry: Entry,
+            /// What to ignore. If None, then ignore the whole entry
+            ignore: Ignore,
+        },
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize)]
+    enum Ignore {
+        #[serde(rename = "all")]
+        All,
+        #[serde(rename = "trailing_bytes")]
+        TrailingBytes,
+    }
+
+    impl Ignore {
+        fn ignore_all(&self) -> bool {
+            matches!(self, Ignore::All)
+        }
+        fn ignore_trailing_bytes(&self) -> bool {
+            matches!(self, Ignore::TrailingBytes)
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    enum Entry {
+        Key(Vec<u8>),
+        Name(String, String),
+    }
+
+    impl Entry {
+        pub fn new(pallet: impl Into<String>, entry: impl Into<String>) -> Self {
+            Entry::Name(pallet.into(), entry.into())
+        }
+        pub fn new_key(key: impl Into<Vec<u8>>) -> Self {
+            Entry::Key(key.into())
+        }
+        pub fn is(&self, pallet: impl AsRef<str>, entry: impl AsRef<str>) -> bool {
+            matches!(self, Entry::Name(p,e) if p == pallet.as_ref() && e == entry.as_ref())
+        }
+        pub fn is_key(&self, key: impl AsRef<[u8]>) -> bool {
+            matches!(self, Entry::Key(k) if k == key.as_ref())
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for Entry {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            #[derive(serde::Deserialize)]
+            enum EntryInner {
+                Key(Hex),
+                Name(EntryName),
+            }
+
+            EntryInner::deserialize(deserializer).map(|e| match e {
+                EntryInner::Key(k) => Entry::Key(k.0),
+                EntryInner::Name(n) => Entry::Name(n.0, n.1),
+            })
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct EntryName(String, String);
+
+    impl<'de> serde::Deserialize<'de> for EntryName {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            struct EntryNameVisitor;
+            impl<'de> serde::de::Visitor<'de> for EntryNameVisitor {
+                type Value = EntryName;
+                fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                    let mut i = v.split(".");
+                    let pallet = i.next().ok_or_else(|| {
+                        serde::de::Error::custom("Storage PALLET name needed in Pallet.Entry")
+                    })?;
+                    let entry = i.next().ok_or_else(|| {
+                        serde::de::Error::custom("Storage ENTRY name needed in Pallet.Entry")
+                    })?;
+                    Ok(EntryName(pallet.into(), entry.into()))
+                }
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("Expecting a hex string like 0x123456AB")
+                }
+            }
+            deserializer.deserialize_str(EntryNameVisitor)
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct Hex(Vec<u8>);
+
+    impl<'de> serde::Deserialize<'de> for Hex {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            struct HexVisitor;
+            impl<'de> serde::de::Visitor<'de> for HexVisitor {
+                type Value = Hex;
+                fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                    let v = v.trim_start_matches("0x").trim_start_matches("0X");
+                    let bytes = hex::decode(v).map_err(|e| {
+                        let e = format!("Cannot deserialize hex: {e}");
+                        serde::de::Error::custom(e)
+                    })?;
+                    Ok(Hex(bytes))
+                }
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("Expecting a hex string like 0x123456AB")
+                }
+            }
+            deserializer.deserialize_str(HexVisitor)
+        }
     }
 }
