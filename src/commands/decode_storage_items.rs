@@ -65,7 +65,8 @@ pub struct Opts {
     #[arg(long)]
     starting_number: Option<usize>,
 
-    /// Stop after this block number (inclusive).
+    /// The seed to end at. Blocks are picked in a deterministic way,
+    /// and so we can provide this to end at a specific point.
     #[arg(long)]
     ending_number: Option<u64>,
 
