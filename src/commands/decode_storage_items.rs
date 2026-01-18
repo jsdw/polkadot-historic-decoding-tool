@@ -775,31 +775,31 @@ mod ignore {
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1055,
-                entry: Entry::new("Babe", "UnderConstruction"),
+                entry: Entry::new("Babe", "UnderConstruction"), // 20 leftover bytes decoding storage keys
                 ignore: Ignore::TrailingBytes,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 2005,
-                entry: Entry::new("Babe", "UnderConstruction"),
+                entry: Entry::new("Babe", "UnderConstruction"), // 20 leftover bytes decoding storage keys
                 ignore: Ignore::TrailingBytes,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1050,
-                entry: Entry::new("Balances", "Locks"),
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1051,
-                entry: Entry::new("Balances", "Locks"),
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1052,
-                entry: Entry::new("Balances", "Locks"),
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1053,
-                entry: Entry::new("Balances", "Locks"),
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1054,
-                entry: Entry::new("Balances", "Locks"), // Cannot decode storage key 'T::AccountId':
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1054,
@@ -807,11 +807,11 @@ mod ignore {
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1055,
-                entry: Entry::new("Balances", "Locks"), // Cannot decode storage key 'T::AccountId':
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 2005,
-                entry: Entry::new("Balances", "Locks"), // Cannot decode storage key 'T::AccountId'
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 2007,
