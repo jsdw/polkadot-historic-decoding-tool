@@ -65,6 +65,11 @@ pub struct Opts {
     #[arg(long)]
     starting_number: Option<usize>,
 
+    /// The seed to end at. Blocks are picked in a deterministic way,
+    /// and so we can provide this to end at a specific point.
+    #[arg(long)]
+    ending_number: Option<u64>,
+
     /// The starting entry eg Staking.ActiveEra. We'll begin from this on
     /// our initial block.
     #[arg(long)]
@@ -97,6 +102,7 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
     let continue_on_error = opts.continue_on_error;
     let max_storage_entries = opts.max_storage_entries;
     let print_bytes = opts.print_bytes;
+    let ending_block = opts.ending_number;
 
     let historic_types: Arc<ChainTypeRegistry> = Arc::new({
         let historic_types_str = std::fs::read_to_string(&opts.types)
@@ -145,6 +151,12 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
         let spec_versions = spec_versions.as_ref().map(|s| s.as_slice());
         let block_number = pick_pseudorandom_block(spec_versions, number);
         let runtime_update_block_number = block_number.saturating_sub(1);
+
+        if let Some(end_block) = ending_block {
+            if block_number > end_block {
+                break 'outer;
+            }
+        }
 
         loop {
             // In the inner loop we connect to a client and try to download entries.
@@ -747,8 +759,160 @@ mod ignore {
         pub fn default_for_kusama_rc() -> Self {
             Self(vec![IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 2005,
-                entry: Entry::new("System", "BlockHash"),
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
                 ignore: Ignore::TrailingBytes,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1055,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1058,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1062,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1055,
+                entry: Entry::new("Babe", "UnderConstruction"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::TrailingBytes,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2005,
+                entry: Entry::new("Babe", "UnderConstruction"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::TrailingBytes,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1050,
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1051,
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1052,
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1053,
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1054,
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1054,
+                entry: Entry::new("System", "Account"), // Cannot decode storage key 'T::AccountId':
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1055,
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2005,
+                entry: Entry::new("Balances", "Locks"), // Cannot decode value with type ID Vec<BalanceLock<T::Balance>; decode with js also not working;
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2007,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2008,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2011,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            },  IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2012,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            },  IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2013,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2015,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2019,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2022,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2023,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2024,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2025,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2026,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2027,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2028,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2029,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 2030,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9010,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9030,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9040,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9050,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9070,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9080,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9090,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9100,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 9111,
+                entry: Entry::new("System", "BlockHash"), // 20 leftover bytes decoding storage keys
+                ignore: Ignore::All,
             }])
         }
 
