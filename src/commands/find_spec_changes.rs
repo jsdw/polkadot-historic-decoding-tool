@@ -53,7 +53,7 @@ pub async fn get_spec_version_changes(opts: Opts) -> anyhow::Result<Vec<SpecVers
 
     let mut start = starting_block_number;
     let end = latest_block_number;
-    let mut changes = vec![];
+    let mut changes = vec![(0, low_version)];
 
     loop {
         let mut chopper = BinaryChopper::new((start, low_version), (end, high_version));
@@ -67,8 +67,11 @@ pub async fn get_spec_version_changes(opts: Opts) -> anyhow::Result<Vec<SpecVers
 
         // If no longer NeedsState, it means we're finished and have a pair of blocks
         // which have a spec version change in them.
-        let ((_block_num1, spec_version1), (block_num2, spec_version2)) =
+        let ((_block_num1, version1), (block_num2, version2)) =
             chopper.next_value().unwrap_finished();
+
+        let spec_version1 = version1.spec_version;
+        let spec_version2 = version2.spec_version;
 
         // We've hit the end; if the block number provided == end, we're done.
         if block_num2 != end {
@@ -76,8 +79,8 @@ pub async fn get_spec_version_changes(opts: Opts) -> anyhow::Result<Vec<SpecVers
                 "Found spec version change at block {block_num2} (from spec version {spec_version1} to {spec_version2})"
             );
             start = block_num2;
-            low_version = spec_version2;
-            changes.push((block_num2, spec_version2));
+            low_version = version2;
+            changes.push((block_num2, version2));
         } else {
             break;
         }
@@ -85,16 +88,23 @@ pub async fn get_spec_version_changes(opts: Opts) -> anyhow::Result<Vec<SpecVers
 
     let updates: Vec<_> = changes
         .iter()
-        .map(|&(block, spec_version)| SpecVersionUpdate {
+        .map(|&(block, runtime_version)| SpecVersionUpdate {
             block,
-            spec_version,
+            spec_version: runtime_version.spec_version,
+            transaction_version: runtime_version.transaction_version,
         })
         .collect();
 
     Ok(updates)
 }
 
-async fn get_spec_version(rpc_client: &RpcClient, url: &str, block_number: u64) -> u32 {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RuntimeVersion {
+    spec_version: u32,
+    transaction_version: u32,
+}
+
+async fn get_spec_version(rpc_client: &RpcClient, url: &str, block_number: u64) -> RuntimeVersion {
     retry(rpc_client.clone(), url, |rpcs: RpcClient| async move {
         let rpcs = LegacyRpcMethods::<PolkadotConfig>::new(rpcs);
         let block_hash = rpcs
@@ -106,7 +116,10 @@ async fn get_spec_version(rpc_client: &RpcClient, url: &str, block_number: u64) 
             .state_get_runtime_version(Some(block_hash))
             .await
             .with_context(|| "Could not fetch runtime version")?;
-        Ok(version.spec_version)
+        Ok(RuntimeVersion { 
+            spec_version: version.spec_version,
+            transaction_version: version.transaction_version 
+        })
     })
     .await
 }
@@ -147,4 +160,5 @@ where
 pub struct SpecVersionUpdate {
     pub block: u64,
     pub spec_version: u32,
+    pub transaction_version: u32,
 }

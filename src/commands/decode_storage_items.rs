@@ -738,6 +738,8 @@ impl std::str::FromStr for StartingEntry {
 }
 
 mod ignore {
+    use std::ops::Range;
+
     /// This is the shape of the --ignore config that we can point to.
     #[derive(serde::Deserialize, Clone, Default, Debug)]
     pub struct IgnoreConfig(Vec<IgnoreConfigEntry>);
@@ -745,18 +747,34 @@ mod ignore {
     impl IgnoreConfig {
         pub fn default_for_polkadot_rc() -> Self {
             Self(vec![
-                IgnoreConfigEntry::AtSpecVersion {
-                    // Proxy.proxies has a corrupt entry in it for account ID 0x0E6DE68B13B82479FBE988AB9ECB16BAD446B67B993CDD9198CD41C7C6259C49:
+                // Proxy.proxies has a corrupt entry in it for account ID 
+                // 0x0E6DE68B13B82479FBE988AB9ECB16BAD446B67B993CDD9198CD41C7C6259C49:
+                IgnoreConfigEntry::AtSpecVersions {
+                    spec_versions: 23..24,
                     entry: Entry::new_key(hex::decode("1809d78346727a0ef58c0fa03bafa3231d885dcfb277f185f2d8e62a5f290c854d2d16b4be62d0e00e6de68b13b82479fbe988ab9ecb16bad446b67b993cdd9198cd41c7c6259c49").unwrap()),
-                    // spec version it becomes a problem:
-                    spec_version: 23,
-                    // just ignore the whole entry.
                     ignore: Ignore::All
                 }
             ])
         }
 
         pub fn default_for_kusama_rc() -> Self {
+            Self(vec![
+                // For spec version 1045 onwards a `last_nonzero_slash` field is added
+                // into slashing spans. However, blocks 901443 to 929891 don't yet seem
+                // to have this field despite being the first ~29k blocks of spec version
+                // 1045. PJS also fails trying to decode this same range. Thus, we just
+                // ignore these entries for now.
+                IgnoreConfigEntry::AtBlocks { 
+                    blocks: 901443..929892, 
+                    entry: Entry::new("Staking", "SlashingSpans"), 
+                    ignore: Ignore::All,
+                }
+            ])
+
+            /*
+            This ignore list was built previously, but needs going over to see if we can
+            Remove or simplify it:
+            
             Self(vec![IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 2005,
                 entry: Entry::new("System", "BlockHash"),
@@ -914,6 +932,7 @@ mod ignore {
                 entry: Entry::new("System", "BlockHash"),
                 ignore: Ignore::All,
             }])
+            */
         }
 
         pub fn should_skip_entry(
@@ -924,22 +943,22 @@ mod ignore {
             block_number: u64,
         ) -> bool {
             self.0.iter().any(|i| match i {
-                IgnoreConfigEntry::AtBlock {
-                    block,
+                IgnoreConfigEntry::AtBlocks {
+                    blocks,
                     entry,
                     ignore,
                 } => {
-                    ignore.ignore_all()
-                        && *block == block_number
+                    ignore.is_ignore_all()
+                        && blocks.contains(&block_number)
                         && entry.is(pallet_name, entry_name)
                 }
-                IgnoreConfigEntry::AtSpecVersion {
-                    spec_version,
+                IgnoreConfigEntry::AtSpecVersions {
+                    spec_versions,
                     entry,
                     ignore,
                 } => {
-                    ignore.ignore_all()
-                        && *spec_version == spec_vers
+                    ignore.is_ignore_all()
+                        && spec_versions.contains(&spec_vers)
                         && entry.is(pallet_name, entry_name)
                 }
             })
@@ -951,16 +970,16 @@ mod ignore {
             block_number: u64,
         ) -> bool {
             self.0.iter().any(|i| match i {
-                IgnoreConfigEntry::AtBlock {
-                    block,
+                IgnoreConfigEntry::AtBlocks {
+                    blocks,
                     entry,
                     ignore,
-                } => ignore.ignore_all() && *block == block_number && entry.is_key(key),
-                IgnoreConfigEntry::AtSpecVersion {
-                    spec_version,
+                } => ignore.is_ignore_all() && blocks.contains(&block_number) && entry.is_key(key),
+                IgnoreConfigEntry::AtSpecVersions {
+                    spec_versions,
                     entry,
                     ignore,
-                } => ignore.ignore_all() && *spec_version == spec_vers && entry.is_key(key),
+                } => ignore.is_ignore_all() && spec_versions.contains(&spec_vers) && entry.is_key(key),
             })
         }
         pub fn should_ignore_trailing_bytes(
@@ -971,22 +990,22 @@ mod ignore {
             block_number: u64,
         ) -> bool {
             self.0.iter().any(|i| match i {
-                IgnoreConfigEntry::AtBlock {
-                    block,
+                IgnoreConfigEntry::AtBlocks {
+                    blocks,
                     entry,
                     ignore,
                 } => {
-                    ignore.ignore_trailing_bytes()
-                        && *block == block_number
+                    ignore.is_ignore_trailing_bytes()
+                        && blocks.contains(&block_number)
                         && entry.is(pallet_name, entry_name)
                 }
-                IgnoreConfigEntry::AtSpecVersion {
-                    spec_version,
+                IgnoreConfigEntry::AtSpecVersions {
+                    spec_versions,
                     entry,
                     ignore,
                 } => {
-                    ignore.ignore_trailing_bytes()
-                        && *spec_version == spec_vers
+                    ignore.is_ignore_trailing_bytes()
+                        && spec_versions.contains(&spec_vers)
                         && entry.is(pallet_name, entry_name)
                 }
             })
@@ -998,18 +1017,18 @@ mod ignore {
             block_number: u64,
         ) -> bool {
             self.0.iter().any(|i| match i {
-                IgnoreConfigEntry::AtBlock {
-                    block,
+                IgnoreConfigEntry::AtBlocks {
+                    blocks,
                     entry,
                     ignore,
-                } => ignore.ignore_trailing_bytes() && *block == block_number && entry.is_key(key),
-                IgnoreConfigEntry::AtSpecVersion {
-                    spec_version,
+                } => ignore.is_ignore_trailing_bytes() && blocks.contains(&block_number) && entry.is_key(key),
+                IgnoreConfigEntry::AtSpecVersions {
+                    spec_versions,
                     entry,
                     ignore,
                 } => {
-                    ignore.ignore_trailing_bytes()
-                        && *spec_version == spec_vers
+                    ignore.is_ignore_trailing_bytes()
+                        && spec_versions.contains(&spec_vers)
                         && entry.is_key(key)
                 }
             })
@@ -1019,18 +1038,18 @@ mod ignore {
     #[derive(Clone, Debug, serde::Deserialize)]
     #[serde(untagged)]
     enum IgnoreConfigEntry {
-        AtBlock {
-            /// The block to ignore the given entry at:
-            block: u64,
-            /// The entry to ignore, in the form PalletName.EntryName
+        AtBlocks {
+            /// The block range to ignore the given entry at
+            blocks: Range<u64>,
+            /// The entry to ignore
             entry: Entry,
             /// What to ignore. If None, then ignore the whole entry
             ignore: Ignore,
         },
-        AtSpecVersion {
-            /// The block to ignore the given entry at:
-            spec_version: u32,
-            /// The entry to ignore, in the form PalletName.EntryName
+        AtSpecVersions {
+            /// The spec version range to ignore the given entry at
+            spec_versions: Range<u32>,
+            /// The entry to ignore
             entry: Entry,
             /// What to ignore. If None, then ignore the whole entry
             ignore: Ignore,
@@ -1046,10 +1065,10 @@ mod ignore {
     }
 
     impl Ignore {
-        fn ignore_all(&self) -> bool {
+        fn is_ignore_all(&self) -> bool {
             matches!(self, Ignore::All)
         }
-        fn ignore_trailing_bytes(&self) -> bool {
+        fn is_ignore_trailing_bytes(&self) -> bool {
             matches!(self, Ignore::TrailingBytes)
         }
     }

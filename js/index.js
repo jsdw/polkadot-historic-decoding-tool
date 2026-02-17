@@ -39,11 +39,13 @@ if (cmd === "decode-blocks") {
     .option('url', 'URL of the node to connect to')
     .option('block', 'Block to decode storage from', undefined, b => parseInt(b, 10))
     .option('entry', 'Storage entry to download')
+    .option('print-bytes', 'Print bytes too')
 
   const flags = argParser.parse(['node', 'index.js', ...args])
   const url = flags.url ?? "wss://polkadot-public-rpc.blockops.network/ws"
   const blockNumber = flags.block ?? exitWithError("--block number needs to be provided")
   const storageEntry = flags.entry ?? exitWithError("--entry pallet.name needs to be provided")
+  const printBytes = flags.printBytes
 
   const palletAndName = parseEntry(storageEntry)
   if (!palletAndName) {
@@ -69,12 +71,21 @@ if (cmd === "decode-blocks") {
 
   if (typeof apiEntry.entries === "function") {
     for (const [key, value] of await apiEntry.entries()) {
-      console.log(key.toHuman())
-      console.log(`  ${value.toString()}`)
+      if (!printBytes) {
+        console.log(key.toHuman())
+        console.log(`  ${value.toString()}`)
+      } else {
+        console.log(key.toHex())
+        console.log(`  ${value.toHex()}`)
+      }
     }
   } else {
     const result = await apiEntry()
-    console.log(result.toHuman())
+    if (!printBytes) {
+      console.log(JSON.stringify(result, null, '  '))
+    } else {
+      console.log(result.toHex())
+    }
   }
   
 } else if (cmd !== undefined) {

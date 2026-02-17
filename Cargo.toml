@@ -21,4 +21,4 @@ sp-crypto-hashing = "0.1.0"
 subxt = "0.41.0"
 subxt-rpcs = "0.41.0"
 tokio = { version = "1.38.0", features = ["full"] }
-frame-decode = { version = "0.16.0" }
+frame-decode = { version = "0.17.0" }
