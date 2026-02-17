@@ -334,12 +334,7 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                         historic_types_for_spec.prepend(metadata_types);
 
                         let at = state.block_hash;
-                        let root_key = {
-                            let mut hash = Vec::with_capacity(32);
-                            hash.extend(&sp_crypto_hashing::twox_128(pallet.as_bytes()));
-                            hash.extend(&sp_crypto_hashing::twox_128(entry.as_bytes()));
-                            hash
-                        };
+                        let root_key = frame_decode::storage::encode_storage_key_prefix(pallet, entry).to_vec();
 
                         if state.ignore_config.should_skip_entry_at_key(
                             &root_key,
@@ -768,13 +763,22 @@ mod ignore {
                     blocks: 901443..929892, 
                     entry: Entry::new("Staking", "SlashingSpans"), 
                     ignore: Ignore::All,
+                },
+                // For this block range, PJS also fails to decode Balances.Locks entries;
+                // an enum is expected but we end up with an unknown u8 (192 or 255 often).
+                // This block range isn't equal to any spec version changes, starting and
+                // ending midway into a spec version.
+                IgnoreConfigEntry::AtBlocks {
+                    blocks: 1375087..21746331,
+                    entry: Entry::new("Balances", "Locks"),
+                    ignore: Ignore::All,
                 }
             ])
 
             /*
             This ignore list was built previously, but needs going over to see if we can
             Remove or simplify it:
-            
+
             Self(vec![IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 2005,
                 entry: Entry::new("System", "BlockHash"),
@@ -820,16 +824,16 @@ mod ignore {
                 entry: Entry::new("Balances", "Locks"),
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
-                spec_version: 1054,
-                entry: Entry::new("System", "Account"),
-                ignore: Ignore::All,
-            }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 1055,
                 entry: Entry::new("Balances", "Locks"),
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 2005,
                 entry: Entry::new("Balances", "Locks"),
+                ignore: Ignore::All,
+            }, IgnoreConfigEntry::AtSpecVersion {
+                spec_version: 1054,
+                entry: Entry::new("System", "Account"),
                 ignore: Ignore::All,
             }, IgnoreConfigEntry::AtSpecVersion {
                 spec_version: 2007,
