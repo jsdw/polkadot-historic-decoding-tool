@@ -75,6 +75,10 @@ pub struct Opts {
     #[arg(long)]
     starting_entry: Option<StartingEntry>,
 
+    /// If enabled, we will only test the first entry that we see and then end.
+    #[arg(long)]
+    one_entry: bool,
+
     /// The max number of storage items to download for a given storage map.
     /// Defaults to downloading all of them.
     #[arg(long, default_value = "0")]
@@ -103,6 +107,7 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
     let max_storage_entries = opts.max_storage_entries;
     let print_bytes = opts.print_bytes;
     let ending_block = opts.ending_number;
+    let one_entry = opts.one_entry;
 
     let historic_types: Arc<ChainTypeRegistry> = Arc::new({
         let historic_types_str = std::fs::read_to_string(&opts.types)
@@ -212,7 +217,7 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
             };
             let storage_entries: VecDeque<_> = {
                 let entries = list_storage_entries_any(&metadata);
-                match starting_entry {
+                let entries: VecDeque<(String,String)> = match starting_entry {
                     None => entries.collect(),
                     Some(se) => {
                         let se_pallet = se.pallet.to_ascii_lowercase();
@@ -226,6 +231,19 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
                             })
                             .collect()
                     }
+                };
+
+                if entries.is_empty() {
+                    eprintln!(
+                        "Couldn't find any storage entries, perhaps because the given `--starting-entry` was not found"
+                    );
+                    continue
+                }
+
+                if one_entry {
+                    VecDeque::from_iter([entries[0].clone()])
+                } else {
+                    entries
                 }
             };
 
@@ -574,6 +592,10 @@ pub async fn run(opts: Opts) -> anyhow::Result<()> {
             break;
         }
 
+        // Stop after one loop if `one_entry` opt enabled.
+        if one_entry {
+            break;
+        }
         number += 1;
     }
 
@@ -772,6 +794,15 @@ mod ignore {
                     blocks: 1375087..21746331,
                     entry: Entry::new("Balances", "Locks"),
                     ignore: Ignore::All,
+                },
+                // Starting with the first block in spec 1054 (1491597) on Kusama, the SYstem.BlockHash
+                // entry (which maps block numbers to block hashes) contains a bunch of invalid keys 
+                // which are longer than expected. These keys decode to naff block numbers in PJS, which
+                // I think just ignores trailing bytes. Ignore them here too for parity with PJS.
+                IgnoreConfigEntry::AtSpecVersions { 
+                    spec_versions: 1054..u32::MAX, 
+                    entry: Entry::new("System", "BlockHash"),
+                    ignore: Ignore::TrailingBytes,
                 }
             ])
 
