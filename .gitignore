@@ -1,2 +1,4 @@
 /target
 TMP_*
+.claude
+.vscode
